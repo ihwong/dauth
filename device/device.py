@@ -49,13 +49,13 @@ while True:
         },
         cert=cert
     )
-    print(r)
-    print(r.content.decode('ascii'))
     resp = r.content.decode('ascii')
     json_data = json.loads(resp)
-    try:
-        print(json_data["error"])
-    except KeyError:
+
+    if "error" in json_data:
+        print("Polling...")
+        continue
+    else:
         access_token = json_data["access_token"]
         break
 ### Phase 2 End ################################################################

@@ -1,6 +1,6 @@
 # Get album info
 curl "https://photoslibrary.googleapis.com/v1/albums" \
-    -H "Authorization: Bearer ya29.a0ARrdaM8G3biixstQI2yRFyJpt34jM1hLB8oErjD1Rqe1-pSssgE2duWMc0fQ50fqIf77Oyxty7mn7-ZdJDI44nVjPYmm3M6ElJb90j5nKxEEyw4OsWAWAuplINtXYHZqoUcDmU-7nl3o40Da_PxOOM2NL9Oh"
+    -H "Authorization: Bearer ya29.a0ARrdaM88xvhxWhfc8n_s3GAt574KcNpy03gdO7h3udEOM61V0L4af60wSM4EXyLv6JCceKpOo7SzJrKIl1aKNMOH-L6ALJKzRobcMJUn5rzGAtsp5sJCmNbrUQgc4Eu9KtYb21zgpJ43hFUgWQUpQA0h68Patg"
 
 # Upload phase 1
 curl "https://photoslibrary.googleapis.com/v1/uploads" \

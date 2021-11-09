@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify
 from secrets import token_hex, choice
 from time import time
+from datetime import datetime
+import hashlib
 
 import requests
 import json
@@ -25,8 +27,14 @@ dvc_list = []
 # data structure: token string, valid until
 token_list = []
 
+# utoken: token for untrusted devices
+uclient_list = ['d31044d4e46c0825fcbd6bc7f14325da']
+utoken_list = []
+
+malicious_file = ['83eb262ea41e7158817d6f87b7cd3764']
+
 # Real Google Photos token
-tk = "ya29.a0ARrdaM-WGfuGv9yjGo__eTcQ6mpNlM5INUoZ_xAYIaeMiRrC0aODChyIYSwYbsTsDgV7f3svQ8zyKfC6bfnOmVo5cBl91aM83-ZK_vUAnumGdWfVwkqvrjv1stlRmNp2UuqnIl_vAyKgjCkDhK5IRjzPyftCNw"
+tk = "ya29.a0ARrdaM88xvhxWhfc8n_s3GAt574KcNpy03gdO7h3udEOM61V0L4af60wSM4EXyLv6JCceKpOo7SzJrKIl1aKNMOH-L6ALJKzRobcMJUn5rzGAtsp5sJCmNbrUQgc4Eu9KtYb21zgpJ43hFUgWQUpQA0h68Patg"
 
 app = Flask(__name__)
 
@@ -75,14 +83,10 @@ def device_authorization():
 @app.route('/device', methods = ['GET'])
 def device():
     cuc = request.args.get('user_code')
-    print(dvc_list)
     for e in dvc_list:
-        print(e['expires_in'])
         if e['user_code'] == cuc and time() < e['expires_in'] and e['verified'] == False:
             e['verified'] = True
-            print("ok")
             return "ok"
-    print("not ok")
     return "not ok"
 
 @app.route('/token', methods = ['POST'])
@@ -93,20 +97,17 @@ def access_token():
     if not gtype == 'urn:ietf:params:oauth:grant-type:device_code':
         return 'gtype error'
     for e in dvc_list:
-        print(e)
         if e['client_id'] == cid and e['device_code'] == dvc and time() < e['expires_in'] and e['verified'] == True:
-            print("everything is ok")
             tok = ''.join(choice('0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-._~+/') for i in range(40)) # rfc6750
-            print(tok)
             token_list.append([tok, time() + 7200, 'partial-scope'])
-            print(token_list)
+            if cid in uclient_list:
+                utoken_list.append(tok)
             return jsonify({
                 'access_token': tok,
                 'token_type': "Bearer",
                 'expires_in': 7200,
                 'scpoe': 'partial-scope'
             })
-    print("not ok")
     return jsonify({"error":"example_error_message"})
 
 # This API is for Out-Of-Scope Testing
@@ -124,8 +125,8 @@ def api1():
         return "not ok"
     else:
         # phase 2/3: policy check
-        if False:
-            return "not ok"
+        if token in utoken_list:
+            return "not ok (accessing this API from untrusted device is not allowed)"
         # phase 3/3: Real API starts here
         resp = requests.get(
             "https://photoslibrary.googleapis.com/v1/mediaItems",
@@ -150,8 +151,9 @@ def api2():
         return "not ok"
     else:
         # phase 2/3: policy check
-        if False:
-            return "not ok"
+        curr_h = int(datetime.now().strftime("%H"))
+        if curr_h < 9 or curr_h >= 17:
+            return "not ok (only allowed within office hours)"
         # phase 3/3: Real API starts here
         resp = requests.post(
             "https://photoslibrary.googleapis.com/v1/albums",
@@ -181,10 +183,9 @@ def api3():
         return "not ok"
     else:
         # phase 2/3: policy check
-        if False:
-            return "not ok"
+        if hashlib.md5(request.get_data()).hexdigest() in malicious_file:
+            return "not ok (suspicious file detected)"
         # phase 3/3: Real API starts here
-        print(request.get_data())
         resp = requests.post(
             "https://photoslibrary.googleapis.com/v1/uploads",
             headers = {
@@ -197,7 +198,6 @@ def api3():
         )
 
         utk = resp.text
-        print(utk)
 
         resp = requests.post(
             "https://photoslibrary.googleapis.com/v1/mediaItems:batchCreate",
@@ -218,7 +218,6 @@ def api3():
         )
 
         parsed = json.dumps(resp.json(), indent = 4)
-        print(parsed)
         return resp.json()
 
 # This API is for Out-Of-Allowed-Response Testing
@@ -236,8 +235,10 @@ def api4():
         return "not ok"
     else:
         # phase 2/3: policy check
-        if False:
-            return "not ok"
+        if token in utoken_list:
+            data_filter = True
+        else:
+            data_filter = False
         # phase 3/3: Real API starts here
         resp = requests.get(
             "https://photoslibrary.googleapis.com/v1/albums",
@@ -245,7 +246,16 @@ def api4():
                 "Authorization": "Bearer " + tk
             }
         )
-        return resp.json()
+        if data_filter:
+            arr = []
+            for obj in resp.json()["albums"]:
+                if "isWriteable" in obj and obj["isWriteable"]:
+                    elem = {"id": obj["id"], "title": obj["title"]}
+                    arr.append(elem)
+            ret = {"albums": arr}
+            return json.dumps(ret)
+        else:
+            return resp.json()
 
 if __name__ == "__main__":
     app.run(ssl_context=('mycert.pem', 'mykey.pem'), port=4443)
