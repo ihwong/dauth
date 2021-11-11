@@ -4,7 +4,7 @@ import requests
 
 cert = ("browser-cert.pem", "browser-key.pem")
 user_code = input("Enter user_code: ") # For example, ABCD-EFGH
-r = requests.get(
+resp = requests.get(
     'https://127.0.0.1:4443/device?user_code=' + user_code,
     cert = cert
 )

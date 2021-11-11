@@ -1,11 +1,14 @@
 from flask import Flask, request, jsonify
 from secrets import token_hex, choice
 from time import time
+from time import perf_counter_ns
 from datetime import datetime
 import hashlib
 
 import requests
-import json
+import subprocess
+
+enable_mdauth_policy = True
 
 # static data of registered 16-byte client_id
 registered_cid = [
@@ -26,21 +29,33 @@ dvc_list = []
 
 # data structure: token string, valid until
 token_list = []
+token_metadata = {}
 
 # utoken: token for untrusted devices
 uclient_list = ['d31044d4e46c0825fcbd6bc7f14325da']
 utoken_list = []
 
-malicious_file = ['83eb262ea41e7158817d6f87b7cd3764']
-
 # Real Google Photos token
-tk = "ya29.a0ARrdaM88xvhxWhfc8n_s3GAt574KcNpy03gdO7h3udEOM61V0L4af60wSM4EXyLv6JCceKpOo7SzJrKIl1aKNMOH-L6ALJKzRobcMJUn5rzGAtsp5sJCmNbrUQgc4Eu9KtYb21zgpJ43hFUgWQUpQA0h68Patg"
+tk = "ya29.a0ARrdaM8i_g_rZbFjCejcezrinAl1-l0qzjAcY5BodZtN83WjsD6Ci8x6RGn50niQmPkAruG8jBQim3rI1DJ4wbm9OArJOwJFL2HxTbgual9Lg59V-PRUVyyWWNlNjheTZTVBs-ztOOJJLFVfpaT2Zs2yBY-cfw"
+
+# list of malicious hashes
+mhashes = []
 
 app = Flask(__name__)
 
 @app.route('/')
 def hello():
-    return "Hello, world!"
+    for i in range(0, 395):
+        filepath = "./hashfiles/VirusShare_%05d.md5" % i
+        with open(filepath, 'r') as f:
+            for line in f.readlines():
+                if line[0] == '#':
+                    continue
+                else:
+                    mhashes.append(line[:-1]) # remove '\n'
+
+    print(mhashes[444])
+    return jsonify({"message":"Hello, world!"})
 
 @app.route('/device_authorization', methods = ['POST'])
 def device_authorization():
@@ -86,8 +101,8 @@ def device():
     for e in dvc_list:
         if e['user_code'] == cuc and time() < e['expires_in'] and e['verified'] == False:
             e['verified'] = True
-            return "ok"
-    return "not ok"
+            return jsonify({"message":"not ok"})
+    return jsonify({"error":"not ok"})
 
 @app.route('/token', methods = ['POST'])
 def access_token():
@@ -95,11 +110,12 @@ def access_token():
     cid = request.form.get('client_id')
     dvc = request.form.get('device_code')
     if not gtype == 'urn:ietf:params:oauth:grant-type:device_code':
-        return 'gtype error'
+        return jsonify({"error":'gtype error'})
     for e in dvc_list:
         if e['client_id'] == cid and e['device_code'] == dvc and time() < e['expires_in'] and e['verified'] == True:
             tok = ''.join(choice('0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-._~+/') for i in range(40)) # rfc6750
-            token_list.append([tok, time() + 7200, 'partial-scope'])
+            token_list.append(tok)
+            token_metadata[tok] = {"valid":time() + 7200, "scope":'partial-scope'}
             if cid in uclient_list:
                 utoken_list.append(tok)
             return jsonify({
@@ -113,149 +129,151 @@ def access_token():
 # This API is for Out-Of-Scope Testing
 @app.route('/api1', methods = ['POST'])
 def api1():
-    # phase 1/3: basic correctness check
-    flag = False
-    ctype = request.headers.get('Content-Type')
-    token = request.headers.get('Authorization')[7:]
-    for idx in token_list:
-        if ctype == "application/x-www-form-urlencoded" and token == idx[0] and time() < idx[1] and idx[2] == 'partial-scope':
-            flag = True
-            break
-    if flag == False:
-        return "not ok"
-    else:
-        # phase 2/3: policy check
-        if token in utoken_list:
-            return "not ok (accessing this API from untrusted device is not allowed)"
-        # phase 3/3: Real API starts here
-        resp = requests.get(
-            "https://photoslibrary.googleapis.com/v1/mediaItems",
-            headers = {
-                "Authorization": "Bearer " + tk
-            }
-        )
-        return resp.json()
+    # phase 1/5: oauth correctness check
+    rcvctype = request.headers.get('Content-Type')
+    rcvtok = request.headers.get('Authorization')[7:]
+    if rcvctype != "application/x-www-form-urlencoded" or rcvtok not in token_list:
+        return jsonify({"error":"not ok"})
+    elif token_metadata[rcvtok]["valid"] < time() or token_metadata[rcvtok]["scope"] != 'partial-scope':
+        return jsonify({"error":"not ok"})
+    # phase 2/5: mdauth pre policy check
+    if enable_mdauth_policy:
+        if rcvtok in utoken_list:
+            return jsonify({"error":"not ok (accessing this API from untrusted device is not allowed)"})
+    # phase 3/5: API logic
+    resp = requests.get(
+        "https://photoslibrary.googleapis.com/v1/mediaItems",
+        headers = {
+            "Authorization": "Bearer " + tk
+        }
+    )
+    # phase 4/5: mdauth post policy check
+    pass # nothing to do
+    # phase 5/5: return
+    return resp.json()
 
 # This API is for Out-Of-Allowed-Time Testing
 @app.route('/api2', methods = ['POST'])
 def api2():
-    # phase 1/3: basic correctness check
-    flag = False
-    ctype = request.headers.get('Content-Type')
-    token = request.headers.get('Authorization')[7:]
-    for idx in token_list:
-        if ctype == "application/x-www-form-urlencoded" and token == idx[0] and time() < idx[1] and idx[2] == 'partial-scope':
-            flag = True
-            break
-    if flag == False:
-        return "not ok"
-    else:
-        # phase 2/3: policy check
+    # phase 1/5: oauth correctness check
+    rcvctype = request.headers.get('Content-Type')
+    rcvtok = request.headers.get('Authorization')[7:]
+    if rcvctype != "application/x-www-form-urlencoded" or rcvtok not in token_list:
+        return jsonify({"error":"not ok"})
+    elif token_metadata[rcvtok]["valid"] < time() or token_metadata[rcvtok]["scope"] != 'partial-scope':
+        return jsonify({"error":"not ok"})
+    # phase 2/5: mdauth pre policy check
+    if enable_mdauth_policy:
         curr_h = int(datetime.now().strftime("%H"))
         if curr_h < 9 or curr_h >= 17:
-            return "not ok (only allowed within office hours)"
-        # phase 3/3: Real API starts here
-        resp = requests.post(
-            "https://photoslibrary.googleapis.com/v1/albums",
-            headers = {
-                "Authorization": "Bearer " + tk
-            },
-            json = {
-                "album":{
-                    'title':'testalbum1102'
-                }
+            return jsonify({"error":"not ok (only allowed within office hours)"})
+    # phase 3/5: API logic
+    resp = requests.post(
+        "https://photoslibrary.googleapis.com/v1/albums",
+        headers = {
+            "Authorization": "Bearer " + tk
+        },
+        json = {
+            "album":{
+                'title':'testalbum1102'
             }
-        )
-        return resp.json()
+        }
+    )
+    # phase 4/5: mdauth post policy check
+    pass # nothing to do
+    # phase 5/5: return
+    return resp.json()
 
 # This API is for Out-Of-Allowed-Parameter Testing
 @app.route('/api3', methods = ['POST'])
 def api3():
-    # phase 1/3: basic correctness check
-    flag = False
-    ctype = request.headers.get('Content-Type')
-    token = request.headers.get('Authorization')[7:]
-    for idx in token_list:
-        if ctype == "application/x-www-form-urlencoded" and token == idx[0] and time() < idx[1] and idx[2] == 'partial-scope':
-            flag = True
-            break
-    if flag == False:
-        return "not ok"
-    else:
-        # phase 2/3: policy check
-        if hashlib.md5(request.get_data()).hexdigest() in malicious_file:
-            return "not ok (suspicious file detected)"
-        # phase 3/3: Real API starts here
-        resp = requests.post(
-            "https://photoslibrary.googleapis.com/v1/uploads",
-            headers = {
-                "Content-type": "application/octet-stream",
-                "X-Goog-Upload-Protocol": "raw",
-                "Authorization": "Bearer " + tk,
-                "X-Goog-Upload-Content-Type": "image/png"
-            },
-            data = request.get_data()
-        )
+    print("api3 called")
+    # phase 1/5: oauth correctness check
+    rcvctype = request.headers.get('Content-Type')
+    rcvtok = request.headers.get('Authorization')[7:]
+    rcvdata = request.get_data()
+    if rcvctype != "application/x-www-form-urlencoded" or rcvtok not in token_list:
+        return jsonify({"error":"not ok"})
+    elif token_metadata[rcvtok]["valid"] < time() or token_metadata[rcvtok]["scope"] != 'partial-scope':
+        return jsonify({"error":"not ok"})
+    # phase 2/5: mdauth pre policy check
+    if enable_mdauth_policy:
+        if hashlib.md5(rcvdata).hexdigest() in mhashes:
+            return jsonify({"error":"not ok (suspicious file detected)"})
+        print("hash check ok")
+        f = open('./temp_file.png', 'wb')
+        f.write(rcvdata)
+        f.close()
+        print("file write ok")
+        res = subprocess.check_output("clamdscan --multiscan --fdpass ./temp_file.png", shell = True)
+        print(res.decode("utf-8"))
+        print("check clamd ok")
+    # phase 3/5: API logic
+    resp = requests.post(
+        "https://photoslibrary.googleapis.com/v1/uploads",
+        headers = {
+            "Content-type": "application/octet-stream",
+            "X-Goog-Upload-Protocol": "raw",
+            "Authorization": "Bearer " + tk,
+            "X-Goog-Upload-Content-Type": "image/png"
+        },
+        data = rcvdata
+    )
 
-        utk = resp.text
+    utk = resp.text
 
-        resp = requests.post(
-            "https://photoslibrary.googleapis.com/v1/mediaItems:batchCreate",
-            headers = {
-                "Content-type": "application/octet-stream",
-                "Authorization": "Bearer " + tk
-            },
-            json = {
-                "albumId": "AI3d0xwnNxU3to2s2CNO6wgKK9vzMqGLNt_O06U4aZCZZ6iez1_Dc2Gp8lN3keenC99PYBPfXs21",
-                "newMediaItems": {
-                    "description": "asdasdasd",
-                    "simpleMediaItem": {
-                        "fileName": "asdasdasdasd",
-                        "uploadToken": utk
-                    }
+    resp = requests.post(
+        "https://photoslibrary.googleapis.com/v1/mediaItems:batchCreate",
+        headers = {
+            "Content-type": "application/octet-stream",
+            "Authorization": "Bearer " + tk
+        },
+        json = {
+            "albumId": "AI3d0xy8Ji9z0CGT3y86XmUGxviSabEtWA7HATl-3ARJon5X-WZqXXfJW_fZrTYRZ-FGyGLH3b9F",
+            "newMediaItems": {
+                "description": "asdasdasd",
+                "simpleMediaItem": {
+                    "fileName": "asdasdasdasd",
+                    "uploadToken": utk
                 }
             }
-        )
-
-        parsed = json.dumps(resp.json(), indent = 4)
-        return resp.json()
+        }
+    )
+    # phase 4/5: mdauth post policy check
+    pass # nothing to do
+    # phase 5/5: return
+    return resp.json()
 
 # This API is for Out-Of-Allowed-Response Testing
 @app.route('/api4', methods = ['POST'])
 def api4():
-    # phase 1/3: basic correctness check
-    flag = False
-    ctype = request.headers.get('Content-Type')
-    token = request.headers.get('Authorization')[7:]
-    for idx in token_list:
-        if ctype == "application/x-www-form-urlencoded" and token == idx[0] and time() < idx[1] and idx[2] == 'partial-scope':
-            flag = True
-            break
-    if flag == False:
-        return "not ok"
-    else:
-        # phase 2/3: policy check
-        if token in utoken_list:
-            data_filter = True
-        else:
-            data_filter = False
-        # phase 3/3: Real API starts here
-        resp = requests.get(
-            "https://photoslibrary.googleapis.com/v1/albums",
-            headers = {
-                "Authorization": "Bearer " + tk
-            }
-        )
-        if data_filter:
+    # phase 1/5: oauth correctness check
+    rcvctype = request.headers.get('Content-Type')
+    rcvtok = request.headers.get('Authorization')[7:]
+    if rcvctype != "application/x-www-form-urlencoded" or rcvtok not in token_list:
+        return jsonify({"error":"not ok"})
+    elif token_metadata[rcvtok]["valid"] < time() or token_metadata[rcvtok]["scope"] != 'partial-scope':
+        return jsonify({"error":"not ok"})
+    # phase 2/5: mdauth pre policy check
+    pass # nothing to do
+    # phase 3/5: API logic
+    resp = requests.get(
+        "https://photoslibrary.googleapis.com/v1/albums",
+        headers = {
+            "Authorization": "Bearer " + tk
+        }
+    )
+    # phase 4/5: mdauth post policy check
+    if enable_mdauth_policy:
+        if rcvtok in utoken_list:
             arr = []
             for obj in resp.json()["albums"]:
                 if "isWriteable" in obj and obj["isWriteable"]:
                     elem = {"id": obj["id"], "title": obj["title"]}
                     arr.append(elem)
-            ret = {"albums": arr}
-            return json.dumps(ret)
-        else:
-            return resp.json()
+            return jsonify({"albums": arr})
+    # phase 5/5: return
+    return resp.json()
 
 if __name__ == "__main__":
     app.run(ssl_context=('mycert.pem', 'mykey.pem'), port=4443)

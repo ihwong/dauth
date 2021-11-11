@@ -37,9 +37,9 @@ print("Visit " + v_uri_complete)
 ### Phase 1 End ################################################################
 
 ### Phase 2 Start ##############################################################
-
 while True:
     time.sleep(interval)
+    print("Polling...")
     r = requests.post(
         'https://127.0.0.1:4443/token',
         data = { # must use 'data = ' not 'json = '
@@ -52,21 +52,19 @@ while True:
     resp = r.content.decode('ascii')
     json_data = json.loads(resp)
 
-    if "error" in json_data:
-        print("Polling...")
-        continue
-    else:
+    if "error" not in json_data:
         access_token = json_data["access_token"]
         break
 ### Phase 2 End ################################################################
 
 ### Phase 3 Start ##############################################################
-print(access_token)
+print("Your token:", access_token)
 
 while True:
     choice = input("Enter API number to call (1-4): ")
     if choice == "1":
         print("Calling API 1...")
+        bf = time.perf_counter_ns()
         resp = requests.post(
             url + '/api1',
             headers = {
@@ -75,10 +73,13 @@ while True:
             },
             cert = cert
         )
+        af = time.perf_counter_ns()
         parsed = json.dumps(resp.json(), indent = 4)
         print(parsed)
+        print("elapsed time:", af - bf)
     elif choice == "2":
         print("Calling API 2...")
+        bf = time.perf_counter_ns()
         resp = requests.post(
             url + "/api2",
             headers = {
@@ -87,13 +88,15 @@ while True:
             },
             cert = cert
         )
+        af = time.perf_counter_ns()
         parsed = json.dumps(resp.json(), indent = 4)
         print(parsed)
+        print("elapsed time:", af - bf)
     elif choice == "3":
         print("Callig API 3...")
-        ### Not Implemented Yet ##################
         with open('./image.png', 'rb') as f:
             param_data = f.read()
+        bf = time.perf_counter_ns()
         resp = requests.post(
             url + "/api3",
             headers = {
@@ -103,11 +106,13 @@ while True:
             cert = cert,
             data = param_data
         )
+        af = time.perf_counter_ns()
         parsed = json.dumps(resp.json(), indent = 4)
         print(parsed)
-        ##########################################
+        print("elapsed time:", af - bf)
     elif choice == "4":
         print("Calling API 4...")
+        bf = time.perf_counter_ns()
         resp = requests.post(
             url + "/api4",
             headers = {
@@ -116,8 +121,11 @@ while True:
             },
             cert = cert
         )
+        af = time.perf_counter_ns()
         parsed = json.dumps(resp.json(), indent = 4)
         print(parsed)
+        print("elapsed time:", af - bf)
+
     else:
         print("choice error")
 ### Phase 3 End ################################################################
