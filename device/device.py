@@ -4,24 +4,27 @@ import requests
 import time
 import json
 
-client_id = 'd31044d4e46c0825fcbd6bc7f14325da'
+# User Configurations ###################################################
+# Server's IP address and port number
+addr = "https://127.0.0.1:4443"
+#########################################################################
+
+client_id = "d31044d4e46c0825fcbd6bc7f14325da"
 cert = ("device-cert.pem", "device-key.pem")
-url = "https://127.0.0.1:4443"
 access_token = ""
 
 ### Phase 1 Start ##############################################################
 
 print("Requesting for user_code...")
-data = {
-    'client_id': client_id,
-    'scpoe': "partial-scope"
-}
 
 # "application/x-www-form-urlencoded" content-type을 보장하기 위해서 data 타입으로 보내야 함
 # https://me2nuk.com/Python-requests-module-example/ 
 r = requests.post(
-    url + '/device_authorization',
-    data = data,
+    addr + '/device_authorization',
+    data = {
+        'client_id': client_id,
+        'scpoe': "partial-scope"
+    },
     cert = cert
 ) 
 
@@ -41,7 +44,7 @@ while True:
     time.sleep(interval)
     print("Polling...")
     r = requests.post(
-        'https://127.0.0.1:4443/token',
+        addr + '/token',
         data = { # must use 'data = ' not 'json = '
             'grant_type':'urn:ietf:params:oauth:grant-type:device_code',
             'device_code':device_code,
@@ -66,7 +69,7 @@ while True:
         print("Calling API 1...")
         bf = time.perf_counter_ns()
         resp = requests.post(
-            url + '/api1',
+            addr + '/api1',
             headers = {
                 'Content-Type': "application/x-www-form-urlencoded",
                 'Authorization': "Bearer " + access_token
@@ -81,7 +84,7 @@ while True:
         print("Calling API 2...")
         bf = time.perf_counter_ns()
         resp = requests.post(
-            url + "/api2",
+            addr + "/api2",
             headers = {
                 'Content-Type': "application/x-www-form-urlencoded",
                 'Authorization': "Bearer " + access_token
@@ -98,7 +101,7 @@ while True:
             param_data = f.read()
         bf = time.perf_counter_ns()
         resp = requests.post(
-            url + "/api3",
+            addr + "/api3",
             headers = {
                 'Content-Type': "application/x-www-form-urlencoded",
                 'Authorization': "Bearer " + access_token
@@ -114,7 +117,7 @@ while True:
         print("Calling API 4...")
         bf = time.perf_counter_ns()
         resp = requests.post(
-            url + "/api4",
+            addr + "/api4",
             headers = {
                 'Content-Type': "application/x-www-form-urlencoded",
                 'Authorization': "Bearer " + access_token

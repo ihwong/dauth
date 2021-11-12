@@ -8,7 +8,16 @@ import hashlib
 import requests
 import subprocess
 
+# User Configurations ###################################################
+# Toggle for mdauth policy
 enable_mdauth_policy = True
+
+# Real Google Photos token
+tk = "ya29.a0ARrdaM8i_g_rZbFjCejcezrinAl1-l0qzjAcY5BodZtN83WjsD6Ci8x6RGn50niQmPkAruG8jBQim3rI1DJ4wbm9OArJOwJFL2HxTbgual9Lg59V-PRUVyyWWNlNjheTZTVBs-ztOOJJLFVfpaT2Zs2yBY-cfw"
+
+# Server's IP address and port number
+addr = "https://127.0.0.1:4443"
+#########################################################################
 
 # static data of registered 16-byte client_id
 registered_cid = [
@@ -34,9 +43,6 @@ token_metadata = {}
 # utoken: token for untrusted devices
 uclient_list = ['d31044d4e46c0825fcbd6bc7f14325da']
 utoken_list = []
-
-# Real Google Photos token
-tk = "ya29.a0ARrdaM8i_g_rZbFjCejcezrinAl1-l0qzjAcY5BodZtN83WjsD6Ci8x6RGn50niQmPkAruG8jBQim3rI1DJ4wbm9OArJOwJFL2HxTbgual9Lg59V-PRUVyyWWNlNjheTZTVBs-ztOOJJLFVfpaT2Zs2yBY-cfw"
 
 # list of malicious hashes
 mhashes = []
@@ -68,7 +74,7 @@ def device_authorization():
     # Generate response
     device_code = token_hex(16) ## Generate 16-byte random hexstring
     user_code = ''.join(choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ') for i in range(4)) + '-' + ''.join(choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ') for i in range(4)) ## Generate 10-digit random decimal
-    verification_uri = 'https://127.0.0.1:4443/device'
+    verification_uri = addr + "/device"
     expires_in = time() + 300
     interval = 5
     verified = False
@@ -130,6 +136,7 @@ def access_token():
 @app.route('/api1', methods = ['POST'])
 def api1():
     # phase 1/5: oauth correctness check
+    cp1 = perf_counter_ns()
     rcvctype = request.headers.get('Content-Type')
     rcvtok = request.headers.get('Authorization')[7:]
     if rcvctype != "application/x-www-form-urlencoded" or rcvtok not in token_list:
@@ -137,10 +144,14 @@ def api1():
     elif token_metadata[rcvtok]["valid"] < time() or token_metadata[rcvtok]["scope"] != 'partial-scope':
         return jsonify({"error":"not ok"})
     # phase 2/5: mdauth pre policy check
+    cp2 = perf_counter_ns()
     if enable_mdauth_policy:
         if rcvtok in utoken_list:
+            cp22 = perf_counter_ns()
+            print(cp1, cp2, cp22)
             return jsonify({"error":"not ok (accessing this API from untrusted device is not allowed)"})
     # phase 3/5: API logic
+    cp3 = perf_counter_ns()
     resp = requests.get(
         "https://photoslibrary.googleapis.com/v1/mediaItems",
         headers = {
@@ -148,14 +159,18 @@ def api1():
         }
     )
     # phase 4/5: mdauth post policy check
+    cp4 = perf_counter_ns()
     pass # nothing to do
     # phase 5/5: return
+    cp5 = perf_counter_ns()
+    print(cp1, cp2, cp3, cp4, cp5)
     return resp.json()
 
 # This API is for Out-Of-Allowed-Time Testing
 @app.route('/api2', methods = ['POST'])
 def api2():
     # phase 1/5: oauth correctness check
+    cp1 = perf_counter_ns()
     rcvctype = request.headers.get('Content-Type')
     rcvtok = request.headers.get('Authorization')[7:]
     if rcvctype != "application/x-www-form-urlencoded" or rcvtok not in token_list:
@@ -163,11 +178,15 @@ def api2():
     elif token_metadata[rcvtok]["valid"] < time() or token_metadata[rcvtok]["scope"] != 'partial-scope':
         return jsonify({"error":"not ok"})
     # phase 2/5: mdauth pre policy check
+    cp2 = perf_counter_ns()
     if enable_mdauth_policy:
         curr_h = int(datetime.now().strftime("%H"))
         if curr_h < 9 or curr_h >= 17:
+            cp22 = perf_counter_ns()
+            print(cp1, cp2, cp22)
             return jsonify({"error":"not ok (only allowed within office hours)"})
     # phase 3/5: API logic
+    cp3 = perf_counter_ns()
     resp = requests.post(
         "https://photoslibrary.googleapis.com/v1/albums",
         headers = {
@@ -180,8 +199,11 @@ def api2():
         }
     )
     # phase 4/5: mdauth post policy check
+    cp4 = perf_counter_ns()
     pass # nothing to do
     # phase 5/5: return
+    cp5 = perf_counter_ns()
+    print(cp1, cp2, cp3, cp4, cp5)
     return resp.json()
 
 # This API is for Out-Of-Allowed-Parameter Testing
@@ -189,6 +211,7 @@ def api2():
 def api3():
     print("api3 called")
     # phase 1/5: oauth correctness check
+    cp1 = perf_counter_ns()
     rcvctype = request.headers.get('Content-Type')
     rcvtok = request.headers.get('Authorization')[7:]
     rcvdata = request.get_data()
@@ -197,18 +220,23 @@ def api3():
     elif token_metadata[rcvtok]["valid"] < time() or token_metadata[rcvtok]["scope"] != 'partial-scope':
         return jsonify({"error":"not ok"})
     # phase 2/5: mdauth pre policy check
+    cp2 = perf_counter_ns()
     if enable_mdauth_policy:
         if hashlib.md5(rcvdata).hexdigest() in mhashes:
+            cp22 = perf_counter_ns()
+            print(cp1, cp2, cp22)
             return jsonify({"error":"not ok (suspicious file detected)"})
-        print("hash check ok")
         f = open('./temp_file.png', 'wb')
         f.write(rcvdata)
         f.close()
-        print("file write ok")
         res = subprocess.check_output("clamdscan --multiscan --fdpass ./temp_file.png", shell = True)
         print(res.decode("utf-8"))
-        print("check clamd ok")
+        res = subprocess.check_output("rm ./temp_file.png", shell = True)
+        cp22 = perf_counter_ns()
+        print(cp1, cp2, cp22)
+        return jsonify({"error":"not ok (mdauth enabled)"})
     # phase 3/5: API logic
+    cp3 = perf_counter_ns()
     resp = requests.post(
         "https://photoslibrary.googleapis.com/v1/uploads",
         headers = {
@@ -240,14 +268,18 @@ def api3():
         }
     )
     # phase 4/5: mdauth post policy check
+    cp4 = perf_counter_ns()
     pass # nothing to do
     # phase 5/5: return
+    cp5 = perf_counter_ns()
+    print(cp1, cp2, cp3, cp4, cp5)
     return resp.json()
 
 # This API is for Out-Of-Allowed-Response Testing
 @app.route('/api4', methods = ['POST'])
 def api4():
     # phase 1/5: oauth correctness check
+    cp1 = perf_counter_ns()
     rcvctype = request.headers.get('Content-Type')
     rcvtok = request.headers.get('Authorization')[7:]
     if rcvctype != "application/x-www-form-urlencoded" or rcvtok not in token_list:
@@ -255,8 +287,10 @@ def api4():
     elif token_metadata[rcvtok]["valid"] < time() or token_metadata[rcvtok]["scope"] != 'partial-scope':
         return jsonify({"error":"not ok"})
     # phase 2/5: mdauth pre policy check
+    cp2 = perf_counter_ns()
     pass # nothing to do
     # phase 3/5: API logic
+    cp3 = perf_counter_ns()
     resp = requests.get(
         "https://photoslibrary.googleapis.com/v1/albums",
         headers = {
@@ -264,6 +298,7 @@ def api4():
         }
     )
     # phase 4/5: mdauth post policy check
+    cp4 = perf_counter_ns()
     if enable_mdauth_policy:
         if rcvtok in utoken_list:
             arr = []
@@ -271,9 +306,17 @@ def api4():
                 if "isWriteable" in obj and obj["isWriteable"]:
                     elem = {"id": obj["id"], "title": obj["title"]}
                     arr.append(elem)
+            cp44 = perf_counter_ns()
+            print(cp1, cp2, cp3, cp4, cp44)
             return jsonify({"albums": arr})
     # phase 5/5: return
+    cp5 = perf_counter_ns()
+    print(cp1, cp2, cp3, cp4, cp5)
     return resp.json()
 
 if __name__ == "__main__":
-    app.run(ssl_context=('mycert.pem', 'mykey.pem'), port=4443)
+    app.run(
+        ssl_context=('mycert.pem', 'mykey.pem'),
+        port=4443,
+        host="0.0.0.0"
+    )
